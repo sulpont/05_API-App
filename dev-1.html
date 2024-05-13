@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+
+    <!-- Google Charts APIの読み込み -->
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+
+    <style>
+        html,
+        body,
+        #map {
+            width: 100%;
+            height: 90%;
+            margin: 0 auto;
+        }
+
+        #map {
+            background: #1d1d1d;
+        }
+
+        .leaflet-fade-anim .leaflet-popup {
+            transition: 0s;
+        }
+
+        .leaflet-popup-content-wrapper {
+            background-color: rgba(255, 255, 255, 0.85);
+            box-shadow: 0px 3px 7px 2px rgba(0, 0, 0, 0.4);
+            border-radius: 0 !important;
+            font-family: "ヒラギノ角ゴ-Pro", 'Noto Sans JP';
+            font-weight: 500;
+            user-select: none;
+            margin-bottom: 0;
+        }
+
+        .leaflet-popup-content {
+            color: black !important;
+            font-size: 1.2rem;
+            margin: 10px 8px 8px 8px;
+        }
+
+        .leaflet-popup-tip-container {
+            display: none;
+        }
+
+        .col-5 {
+            overflow-y: auto;
+            height: 200px;
+            width: 60%;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        table {
+            border-collapse: collapse;
+            border-spacing: 0;
+            width: 100%;
+        }
+
+        th,
+        td {
+            vertical-align: middle;
+            padding: 20px;
+            border: 1px solid #000;
+            color: #000;
+            font-size: 14px;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        th {
+            background: #000;
+        }
+
+        td {
+            background: #fff;
+        }
+
+        .sticky {
+            position: sticky;
+            top: 0;
+            left: 0;
+            border-top: none;
+        }
+
+        .sticky::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-top: 1px solid #000;
+            border-bottom: 1px solid #000;
+            background: #ccc;
+            z-index: -1;
+        }
+
+        .container {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            flex-direction: column;
+        }
+
+        .col-5 {
+            margin: 20px 0;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <div id="map"></div>
+
+
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-5">
+                <table id="resultTable" class="table table-bordered table-sm text-center">
+                    <thead>
+                        <tr class="text-center table-secondary">
+                            <th class="sticky">No.</th>
+                            <th class="sticky">発生時刻</th>
+                            <th class="sticky">震源地</th>
+                            <th class="sticky">最大震度</th>
+                            <th class="sticky">深さ</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 地震情報を表示する要素 -->
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <div id="earthquakeInfo" class="text-center"></div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <div id="earthquakeInfo2" class="text-center"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- グラフを描画する要素 -->
+    <!-- <div id="chart_div" style="width: 100%; height: 500px;"></div> -->
+
+
+
+    <script>
+        // レイアウトをオブジェクト変数にする
+        const style = {
+            "color": "#ffffff",
+            "weight": 1.5,
+            "opacity": 1,
+            "fillColor": "#3a3a3a",
+            "fillOpacity": 1
+        };
+
+        // ([緯度, 経度], ズームレベル)
+        const map = L.map('map').setView([36.575, 137.984], 6);
+        L.control.scale({ maxWidth: 150, position: 'bottomright', imperial: false }).addTo(map);
+        map.zoomControl.setPosition('topright');
+        $.getJSON("./assets/prefectures.geojson", function (data) {
+            L.geoJson(data, {
+                style: style
+            }).addTo(map);
+        });
+
+        // dataの中に取得した地震情報を格納し、取り出して出力する
+        $.getJSON("https://api.p2pquake.net/v2/history?codes=551&limit=50", function (data) {
+
+            console.log(data);
+
+
+            // 情報を取り出して定数にする
+            const [time, name, scale, magnitude, depth] = [
+                data["0"]["earthquake"]["time"], // 発生時刻
+                data["0"]["earthquake"]["hypocenter"]["name"], // 震源地
+                data["0"]["earthquake"]["maxScale"], // 最大震度
+                data["0"]["earthquake"]["hypocenter"]["magnitude"], // マグニチュード
+                data["0"]["earthquake"]["hypocenter"]["depth"] // 深さ
+            ];
+
+            const latLng = new L.LatLng(data[0]["earthquake"]["hypocenter"]["latitude"], data[0]["earthquake"]["hypocenter"]["longitude"]);
+
+            const eqPointIconImage = L.icon({
+                iconUrl: './img/earthquake-point.png',
+                iconSize: [40, 40],
+                iconAnchor: [20, 20], // アイコンのどこをプロットするか、px単位で指定する
+                popupAnchor: [0, -40] // アイコンのどこからポップアップを表示させるか、px単位で指定する
+            });
+
+
+
+            // アイコンを表示させる
+            const eqPointIcon = L.marker(latLng, { icon: eqPointIconImage }).addTo(map);
+
+            // ホバー時に詳細情報を表示させる
+            let maxInt_data = data[0]['earthquake']['maxScale'];
+            const maxIntText = maxInt_data == 10 ? "1" : maxInt_data == 20 ? "2" : maxInt_data == 30 ? "3" : maxInt_data == 40 ? "4" :
+                maxInt_data == 45 ? "5弱" : maxInt_data == 46 ? "5弱" : maxInt_data == 50 ? "5強" : maxInt_data == 55 ? "6弱" :
+                    maxInt_data == 60 ? "6強" : maxInt_data == 70 ? "7" : "不明";
+
+            const Magnitude = data[0]['earthquake']['hypocenter']['magnitude'] != -1 ?
+                (data[0]['earthquake']['hypocenter']['magnitude']).toFixed(1) : 'ー.ー';
+            const Name = data[0]['earthquake']['hypocenter']['name'] != "" ?
+                data[0]['earthquake']['hypocenter']['name'] : '情報なし';
+            const Depth = data[0]['earthquake']['hypocenter']['depth'] != -1 ?
+                "約" + data[0]['earthquake']['hypocenter']['depth'] + "km" : '不明';
+            const tsunamiText = data[0]['earthquake']['domesticTsunami'] == "None" ? "なし" :
+                data[0]['earthquake']['domesticTsunami'] == "Unknown" ? "不明" :
+                    data[0]['earthquake']['domesticTsunami'] == "Checking" ? "調査中" :
+                        data[0]['earthquake']['domesticTsunami'] == "NonEffective" ? "若干の海面変動" :
+                            data[0]['earthquake']['domesticTsunami'] == "Watch" ? "津波注意報" :
+                                data[0]['earthquake']['domesticTsunami'] == "Warning" ? "津波警報" : "情報なし";
+            const Time = data[0]['earthquake']['time'];
+
+            eqPointIcon.bindPopup('発生時刻：' + Time + '<br>最大震度：' + maxIntText + '<br>震源地：' + Name + '<span style=\"font-size: 85%;\"> (' + data[0]["earthquake"]["hypocenter"]["latitude"] + ", " + data[0]["earthquake"]["hypocenter"]["longitude"] + ')</span><br>規模：M' + Magnitude + '　深さ：' + Depth + '<br>受信：' + data[0]['issue']['time'] + ', ' + data[0]['issue']['source'], { closeButton: false, zIndexOffset: 10000, maxWidth: 10000 });
+
+            eqPointIcon.on('mouseover', function (e) { this.openPopup(); });
+            eqPointIcon.on('mouseout', function (e) { this.closePopup(); });
+
+
+
+            // 直近50件の地震情報を取得してテーブルに表示する関数
+            async function displayResultTable() {
+                const apiUrl = 'https://api.p2pquake.net/v2/history?codes=551&limit=50';
+
+                try {
+                    const response = await fetch(apiUrl);
+                    const historyData = await response.json();
+
+                    // Webプッシュ通知のリクエスト〜プッシュ通知を送信する
+                    async function requestNotificationPermission() {
+                        switch (Notification.permission) {
+                            case "granted":
+                                const options = {
+                                    body: '地震情報が更新されました！', // 通知の本文
+                                    requireInteraction: true // 閉じるまで表示を維持する
+                                };
+
+                                // 新しい地震情報が追加されたらインスタンス化して、引数に通知したい内容を書く
+                                if (historyData.length > 0) {
+                                    const latestEarthquake = historyData[0].earthquake;
+                                    const message = `${latestEarthquake.time}ごろ、${latestEarthquake.hypocenter.name}で最大震度${latestEarthquake.maxScale / 10}の地震が発生しました。マグニチュードは${latestEarthquake.hypocenter.magnitude}、深さ${latestEarthquake.hypocenter.depth}kmと推定されています。`;
+                                    new Notification(message, options);
+
+                                    console.log(`${latestEarthquake.time}ごろ、${latestEarthquake.hypocenter.name}で最大震度${latestEarthquake.maxScale / 10}の地震が発生しました。マグニチュードは${latestEarthquake.hypocenter.magnitude}、深さ${latestEarthquake.hypocenter.depth}kmと推定されています。`);
+
+                                };
+
+                                break;
+                            case "denied":
+                                alert('通知を拒否されています');
+                                break;
+                        };
+                    };
+
+                    const earthquakeTableBody = document.querySelector('#resultTable tbody');
+                    earthquakeTableBody.innerHTML = ''; // テーブルの内容をクリア
+
+                    // フォーマットする関数
+                    function formatDate(dateString) {
+                        const [date, time] = dateString.split(' ');
+                        const [year, month, day] = date.split('/');
+                        const [hours, minutes] = time.split(':');
+                        return `${year}年${month}月${day}日 ${hours}時${minutes}分ごろ`;
+                    };
+
+                    // 配列内の各要素に対してテーブルに行を追加する
+                    historyData.forEach((earthquake, index) => {
+                        const tableTime = formatDate(earthquake.earthquake.time); // 発生時刻
+                        const tableEpicenter = earthquake.earthquake.hypocenter.name; // 震源地
+                        const tableMaxScale = earthquake.earthquake.maxScale / 10; // 最大震度
+                        const tableDepth = earthquake.earthquake.hypocenter.depth; // 深さ
+
+                        if (tableMaxScale >= 0 && tableDepth >= 0) {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td>${tableTime}</td>
+                        <td>${tableEpicenter}</td>
+                        <td>${tableMaxScale}</td>
+                        <td>${tableDepth} km</td>
+                        `;
+
+                            earthquakeTableBody.appendChild(row);
+                        }
+                    });
+
+
+                    // displayResultTable関数を呼び出す前に通知の許可をリクエストする
+                    window.onload = async function () {
+                        await requestNotificationPermission();
+                        await displayResultTable();
+                    };
+
+                    // windows.onload内でdisplayResultTable関数を呼び出し、ページが完全に読み込まれてからテーブル更新をする
+                    window.onload = async function () {
+                        await displayResultTable(); // テーブルを表示する非同期関数を呼び出す
+
+                        switch (Notification.permission) {
+                            case 'default':
+                                await Notification.requestPermission();
+                                break;
+                            case 'denied':
+                                alert('通知を拒否されています');
+                                break;
+                        };
+
+                        notification(); // 通知を送信
+                    };
+
+                } catch (error) {
+                    console.error('Error fetching earthquake data:', error);
+                }
+            };
+
+            // // 地震情報をテーブルに表示
+            window.onload = async function () {
+                await displayResultTable();
+            };
+
+            // 上記の非同期処理完了後、時間差でdisplayResultTable関数を実行
+            setTimeout(function () {
+                displayResultTable();
+            }, 500); // 500ミリ秒後に実行
+
+
+            // 
+            // 経過時間の表示
+            // 
+
+
+            // 地震情報の発生時刻を定義
+            const earthquakeTime = new Date(time); // 地震が起きた時刻
+
+            // 現在時刻を取得
+            const currentTime = new Date();
+
+            // 地震が起きてからの経過時間（ミリ秒）を計算
+            const elapsedTime = currentTime - earthquakeTime;
+
+            // ミリ秒をいい感じに変換する関数
+            function convertMilliseconds(ms) {
+                const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+                const hours = Math.floor((ms % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((ms % (1000 * 60)) / 1000);
+                return `${days}日 ${hours}時間 ${minutes}分 ${seconds}秒`;
+            }
+
+            // 経過時間を表示する要素を取得
+            const earthquakeInfoElement = document.getElementById('earthquakeInfo');
+
+            // 経過時間を表示する
+            earthquakeInfoElement.textContent = `最後の地震発生からどれくらい経過した？：${convertMilliseconds(elapsedTime)}`;
+
+
+
+
+            // 
+            // 次の地震発生までの平均経過時間
+            // 
+
+            // dataから地震データを抽出し、地震発生時刻を配列に格納する
+            const timeArray = data.map(earthquake => earthquake.earthquake.time);
+            console.log(timeArray); // 時刻の配列をコンソール出力して確認する
+
+            // 平均間隔を計算する関数
+            function calculateAverageInterval(times) {
+                let totalInterval = 0;
+
+                // 地震の発生時刻間隔を計算し、合計を求める
+                for (let i = 1; i < times.length; i++) {
+                    const time1 = new Date(times[i - 1]).getTime(); // 後の地震の時刻（ミリ秒）
+                    const time2 = new Date(times[i]).getTime(); // 前の地震の時刻（ミリ秒）
+                    const interval = time1 - time2; // 地震の発生時刻の間隔（ミリ秒）
+                    totalInterval += interval;
+                }
+
+                // 平均間隔を求めて返す
+                const averageInterval = totalInterval / (times.length - 1); // 地震数から1を引く
+                return averageInterval;
+            };
+
+            // 平均間隔を計算する
+            const averageInterval = calculateAverageInterval(timeArray);
+
+            // 平均間隔を表示する要素を取得
+            const earthquakeInfoElement2 = document.getElementById('earthquakeInfo2');
+
+            // 平均間隔を日・時・分・秒の形式に変換して表示する
+            earthquakeInfoElement2.textContent = `地震の平均間隔：${convertMilliseconds(averageInterval)}`;
+
+            // ミリ秒をいい感じに変換する関数
+            function convertMilliseconds(ms) {
+                const days = Math.floor(ms / (1000 * 60 * 60 * 24));
+                const hours = Math.floor((ms % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((ms % (1000 * 60)) / 1000);
+                return `${days}日 ${hours}時間 ${minutes}分 ${seconds}秒`;
+            };
+        });
+
+
+        // 1分（60,000ms）ごとに画面をリロードする（10分のタイムアウトに対応するため）-> 0.25分へ変更
+        // setTimeoutだとリロードは1回だけなので注意！
+        setInterval(function () {
+            location.reload();
+        }, 1000 * 60 * 0.25);
+
+    </script>
+
+
+</body>
+
+</html>
